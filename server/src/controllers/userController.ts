@@ -1,23 +1,19 @@
 import type { Request, Response } from 'express'
+import { findUserById, listUsers } from '../repositories/userRepository.js'
 
-interface User {
-  id: number
-  name: string
-  email: string
-}
-
-const users: User[] = [
-  { id: 1, name: 'Alice', email: 'alice@example.com' },
-  { id: 2, name: 'Bob', email: 'bob@example.com' }
-]
-
-export const getUsers = (_req: Request, res: Response) => {
+export const getUsers = async (_req: Request, res: Response) => {
+  const users = await listUsers()
   res.json({ success: true, data: users })
 }
 
-export const getUserById = (req: Request, res: Response) => {
-  const id = parseInt(req.params.id, 10)
-  const user = users.find(u => u.id === id)
+export const getUserById = async (req: Request, res: Response) => {
+  const id = Number(req.params.id)
+  // 非整数 id 直接拒绝，避免把 NaN 传入 SQL 参数
+  if (!Number.isInteger(id) || id < 1) {
+    return res.status(400).json({ success: false, error: 'Invalid user id' })
+  }
+
+  const user = await findUserById(id)
   if (!user) {
     return res.status(404).json({ success: false, error: 'User not found' })
   }

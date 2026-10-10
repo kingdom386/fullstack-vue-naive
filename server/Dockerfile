@@ -30,6 +30,8 @@ COPY server/package.json ./server/package.json
 RUN npm ci --omit=dev --workspace server --no-audit --no-fund && npm cache clean --force
 
 COPY --from=build --chown=node:node /app/server/dist ./server/dist
+# 迁移 SQL 需要随镜像分发：运行时用 node server/dist/db/migrate.js 执行
+COPY --from=build --chown=node:node /app/server/drizzle ./server/drizzle
 
 EXPOSE 3000
 # 以非 root 用户运行，降低容器逃逸风险

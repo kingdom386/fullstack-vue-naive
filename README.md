@@ -15,6 +15,7 @@
 ### 后端 (`server/`)
 - Node.js + Express
 - TypeScript
+- MySQL 8 + Drizzle ORM（类型安全查询；迁移 SQL 存放于 `server/drizzle/`）
 - Helmet（安全）
 - CORS
 - Pino（结构化日志：开发环境彩色输出，生产环境 JSON）
@@ -37,17 +38,21 @@ fullstack-vue-naive/
 │   └── package.json
 ├── server/                 # Express 后端
 │   ├── src/
-│   │   ├── config/         # 配置
+│   │   ├── config/         # 配置（环境变量校验）
 │   │   ├── controllers/    # 控制器
+│   │   ├── db/             # 连接池、表结构、迁移执行、种子数据
 │   │   ├── middleware/     # 中间件
+│   │   ├── repositories/   # 数据访问层
 │   │   ├── routes/         # 路由
 │   │   ├── app.ts
 │   │   └── index.ts
+│   ├── drizzle/            # drizzle-kit 生成的迁移 SQL（需提交入库）
+│   ├── drizzle.config.ts   # 迁移生成配置
 │   ├── Dockerfile          # 多阶段构建：tsc 编译 + 精简运行镜像
 │   ├── .env.example
 │   └── package.json
 ├── .github/workflows/ci.yml # CI：代码门禁 + 镜像构建/发布（GHCR）
-├── docker-compose.yml      # 本地/单机一键编排前端 + 后端
+├── docker-compose.yml      # 本地/单机一键编排前端 + 后端 + MySQL
 ├── docker-compose.prod.yml # 生产覆盖配置（HTTPS：证书挂载 + 80/443 映射）
 ├── .dockerignore
 ├── eslint.config.mjs       # ESLint 9 flat config（前后端共用）
@@ -64,13 +69,33 @@ fullstack-vue-naive/
 npm install
 ```
 
-### 2. 配置环境变量
+### 2. 启动数据库
+
+只需要 MySQL 时，可以单起编排中的 `db` 服务（数据落在 `mysqldata` 卷，端口绑定在 `127.0.0.1`）：
 
 ```bash
-cp server/.env.example server/.env
+cp .env.example .env        # 至少设置 MYSQL_ROOT_PASSWORD
+docker compose up -d db
 ```
 
-### 3. 启动开发环境
+### 3. 配置环境变量
+
+```bash
+cp server/.env.example server/.env   # 按需修改 DATABASE_URL
+```
+
+`DATABASE_URL` 格式为 `mysql://用户:密码@主机:端口/库名`。开发环境不设置时回退为 `mysql://root:root@localhost:3306/app`，生产环境必须显式设置，否则启动即失败。
+
+### 4. 执行迁移并写入初始数据
+
+```bash
+npm run db:migrate -w server   # 应用 drizzle/ 中的迁移
+npm run db:seed -w server      # 写入示例用户（仅开发环境；生产环境会拒绝执行）
+```
+
+> 修改 `server/src/db/schema.ts` 后，用 `npm run db:generate -w server` 生成新的迁移文件并提交入库。生产环境只执行 `migrate`，不要使用 `drizzle-kit push`。
+
+### 5. 启动开发环境
 
 同时启动前后端：
 
@@ -85,7 +110,7 @@ npm run dev:server   # 后端 http://localhost:3000
 npm run dev:client   # 前端 http://localhost:5173
 ```
 
-### 4. 构建生产版本
+### 6. 构建生产版本
 
 ```bash
 npm run build
@@ -94,11 +119,13 @@ npm start
 
 ## API 接口
 
-| 方法 | 路径            | 描述           |
-| ---- | --------------- | -------------- |
-| GET  | `/api/health`   | 健康检查       |
-| GET  | `/api/users`    | 获取用户列表   |
-| GET  | `/api/users/:id`| 根据 ID 获取用户 |
+| 方法 | 路径             | 描述             |
+| ---- | ---------------- | ---------------- |
+| GET  | `/api/health`    | 健康检查         |
+| GET  | `/api/users`     | 获取用户列表     |
+| GET  | `/api/users/:id` | 根据 ID 获取用户 |
+
+`/api/users/:id` 的 id 非正整数时返回 `400`，用户不存在时返回 `404`。
 
 前端开发服务器已配置代理，`/api` 请求会自动转发到后端 `http://localhost:3000`。
 
@@ -119,14 +146,16 @@ docker compose up -d --build
 
 启动后：
 
-| 服务 | 地址 | 说明 |
-| ---- | ---- | ---- |
-| 前端 | http://localhost:8080 | Nginx 托管，`/api` 自动代理到后端 |
-| 后端 | http://localhost:3000 | Express API |
+| 服务   | 地址                   | 说明                                |
+| ------ | ---------------------- | ----------------------------------- |
+| 前端   | http://localhost:8080  | Nginx 托管，`/api` 自动代理到后端   |
+| 后端   | http://localhost:3000  | Express API                         |
+| MySQL  | 127.0.0.1:3306（仅本机） | 数据存于 `mysqldata` 卷，供本地连库 |
 
 compose 编排已内置部署所需的基础能力：
 
-- **健康检查**：前后端均配置 `healthcheck`；前端通过 `depends_on.condition: service_healthy` 等后端就绪后再启动，避免代理到未就绪的后端
+- **数据库迁移**：`db` → `migrate`（一次性任务，执行 `server/dist/db/migrate.js`）→ `server` 依次按健康检查/退出码串行启动，迁移失败则后端不启动
+- **健康检查**：`db` 用 `mysqladmin ping`、后端用 `/api/health`、前端用 Nginx 探活；前端通过 `depends_on.condition: service_healthy` 等后端就绪后再启动，避免代理到未就绪的后端
 - **日志轮转**：`json-file` 限制单文件 10MB、最多 3 个，防止日志写满磁盘
 - **镜像来源可切换**：`SERVER_IMAGE` / `CLIENT_IMAGE` 可指向镜像仓库地址（见 `.env.example`）
 
@@ -134,7 +163,8 @@ compose 编排已内置部署所需的基础能力：
 
 ```bash
 docker compose logs -f
-docker compose down
+docker compose down          # 保留数据库数据卷
+docker compose down -v       # 连同数据库数据一起删除
 ```
 
 #### 启用 HTTPS（可选）
@@ -187,7 +217,7 @@ docker compose up -d --no-build
 
 [.github/workflows/ci.yml](.github/workflows/ci.yml) 在 `push`（`main` 或 `v*` tag）/ `PR` 到 `main` 时触发两个 Job：
 
-1. **verify（代码门禁）**：`npm ci` → `npm run lint`（ESLint）→ `npm run typecheck`（前后端类型检查）→ `npm test`（Vitest 单测）→ `npm run build`（前后端构建）
+1. **verify（代码门禁）**：`npm ci` → `npm run lint`（ESLint）→ `npm run typecheck`（前后端类型检查）→ `npm test`（Vitest 单测）→ `npm run build`（前后端构建）。单测通过 mock 数据访问层运行，因此门禁不需要启动数据库。
 2. **docker（镜像构建与发布）**：matrix 并行构建 server / client 镜像（Buildx + GHA 构建缓存）
    - PR：仅校验镜像可正常构建（`push: false`）
    - `push` 到 `main` / 推送 `v*` tag：登录 GHCR 并推送到 `ghcr.io/<owner>/<repo>-{server,client}`

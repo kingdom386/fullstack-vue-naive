@@ -1,4 +1,52 @@
 services:
+  db:
+    # MySQL 8.4 LTS
+    image: mysql:8.4
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?请在 .env 中设置 MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-app}
+    command: ['--character-set-server=utf8mb4', '--collation-server=utf8mb4_unicode_ci']
+    # 仅绑定宿主机回环地址，方便本地 npm run dev 连库；容器之间通过服务名 db 访问
+    ports:
+      - '127.0.0.1:${DB_PORT:-3306}:3306'
+    volumes:
+      - mysqldata:/var/lib/mysql
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: '10m'
+        max-file: '3'
+    healthcheck:
+      test: ['CMD-SHELL', 'mysqladmin ping -h 127.0.0.1 -u root -p"$$MYSQL_ROOT_PASSWORD" --silent']
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      # 首次启动需初始化数据目录，留足时间
+      start_period: 30s
+
+  # 一次性迁移任务：执行成功（退出码 0）后 server 才会启动
+  migrate:
+    build:
+      context: .
+      dockerfile: server/Dockerfile
+    image: ${SERVER_IMAGE:-fullstack-vue-naive-server:latest}
+    command: ['node', 'server/dist/db/migrate.js']
+    environment:
+      NODE_ENV: ${NODE_ENV:-production}
+      CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:8080}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      DATABASE_URL: 'mysql://root:${MYSQL_ROOT_PASSWORD}@db:3306/${MYSQL_DATABASE:-app}'
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: 'no'
+    logging:
+      driver: json-file
+      options:
+        max-size: '10m'
+        max-file: '3'
+
   server:
     build:
       context: .
@@ -10,6 +58,14 @@ services:
       PORT: 3000
       CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:8080}
       LOG_LEVEL: ${LOG_LEVEL:-info}
+      DATABASE_URL: 'mysql://root:${MYSQL_ROOT_PASSWORD}@db:3306/${MYSQL_DATABASE:-app}'
+    depends_on:
+      db:
+        # 数据库就绪后才允许迁移与启动
+        condition: service_healthy
+      migrate:
+        # 迁移成功完成后才启动，避免表结构缺失导致接口报错
+        condition: service_completed_successfully
     ports:
       - '3000:3000'
     restart: unless-stopped
@@ -55,3 +111,7 @@ services:
       timeout: 5s
       retries: 3
       start_period: 10s
+
+volumes:
+  # 数据库数据目录，docker compose down（不加 -v）不会删除
+  mysqldata:
