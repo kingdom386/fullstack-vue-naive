@@ -1,0 +1,12 @@
+# 生产 HTTPS 覆盖配置（叠加在 docker-compose.yml 之上使用）
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
+# 前置条件：仓库根目录 ./certs/ 下放置 fullchain.pem 与 privkey.pem
+# （证书可通过 certbot / 云厂商证书服务获取，certs 目录已被 .gitignore 忽略）
+services:
+  client:
+    ports:
+      - '${HTTP_PORT:-80}:80'
+      - '${HTTPS_PORT:-443}:443'
+    volumes:
+      - ./client/nginx.https.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./certs:/etc/nginx/certs:ro

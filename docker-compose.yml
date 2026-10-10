@@ -3,14 +3,21 @@ services:
     build:
       context: .
       dockerfile: server/Dockerfile
-    image: fullstack-vue-naive-server:latest
+    # 支持通过环境变量切换到镜像仓库中的镜像（配合 docker compose pull 部署）
+    image: ${SERVER_IMAGE:-fullstack-vue-naive-server:latest}
     environment:
-      NODE_ENV: production
+      NODE_ENV: ${NODE_ENV:-production}
       PORT: 3000
-      CORS_ORIGIN: http://localhost:8080
+      CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:8080}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
     ports:
       - '3000:3000'
     restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: '10m'
+        max-file: '3'
     healthcheck:
       test:
         [
@@ -28,9 +35,23 @@ services:
     build:
       context: .
       dockerfile: client/Dockerfile
-    image: fullstack-vue-naive-client:latest
+    image: ${CLIENT_IMAGE:-fullstack-vue-naive-client:latest}
     ports:
-      - '8080:80'
+      - '${CLIENT_PORT:-8080}:80'
     depends_on:
-      - server
+      server:
+        # 等待后端健康检查通过后再启动，避免代理到未就绪的后端
+        condition: service_healthy
     restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: '10m'
+        max-file: '3'
+    healthcheck:
+      # 用 127.0.0.1 而非 localhost：nginx 仅监听 IPv4，localhost 会先解析到 ::1 导致连接被拒
+      test: ['CMD', 'wget', '-q', '--spider', 'http://127.0.0.1/']
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s

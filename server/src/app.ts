@@ -1,8 +1,9 @@
 import express from 'express'
 import cors from 'cors'
 import helmet from 'helmet'
-import morgan from 'morgan'
+import { pinoHttp } from 'pino-http'
 import { config } from './config/index.js'
+import { logger } from './lib/logger.js'
 import healthRoutes from './routes/health.js'
 import userRoutes from './routes/users.js'
 import { notFound } from './middleware/notFound.js'
@@ -17,7 +18,7 @@ app.use(
     origin: config.corsOrigin
   })
 )
-app.use(morgan('dev'))
+app.use(pinoHttp({ logger }))
 app.use(express.json())
 app.use(express.urlencoded({ extended: true }))
 

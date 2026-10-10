@@ -1,8 +1,10 @@
 **/node_modules
 **/dist
+**/coverage
 **/.git
 **/.gitignore
 **/*.log
+**/*.tsbuildinfo
 
 # 环境变量：排除真实配置，保留示例
 **/.env
@@ -10,9 +12,17 @@
 **/.env.*.local
 !**/.env.example
 
+# 测试与本地工具配置，不参与镜像构建
+**/*.test.ts
+**/vitest.config.ts
+eslint.config.mjs
+.prettierrc
+
 # 无需进入构建上下文的文件
 .github
+.vscode
+certs
+*.md
 docker-compose.yml
+docker-compose.prod.yml
 .editorconfig
-.prettierrc
-README.md

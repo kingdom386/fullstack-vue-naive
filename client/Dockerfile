@@ -18,6 +18,9 @@ RUN npm run build -w client
 # ---------- 运行阶段 ----------
 FROM nginx:1.27-alpine AS runtime
 
+LABEL org.opencontainers.image.title="fullstack-vue-naive-client" \
+      org.opencontainers.image.description="Vue 3 + Naive UI 静态站点（Nginx 托管）"
+
 # 自定义站点配置：SPA 回退、gzip、静态缓存、/api 反向代理
 COPY client/nginx.conf /etc/nginx/conf.d/default.conf
 COPY --from=build /app/client/dist /usr/share/nginx/html
